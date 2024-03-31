@@ -6,4 +6,4 @@
 ## Task intern VK
 
 ## Start project
--docker compose up -d
+docker compose up -d
