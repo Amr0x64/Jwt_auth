@@ -96,8 +96,8 @@ namespace JWTAuthTemplate.Controllers
             
             var claims = new List<Claim>()
             {
-                new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(ClaimTypes.Name, user.Email),
+                new Claim("user_id", user.Id),
+                new Claim(ClaimTypes.Email, user.Email),
             };
 
             foreach (var userRole in user.Roles)
