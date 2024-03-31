@@ -1,4 +1,3 @@
-
 using System.Text;
 using JWTAuthTemplate.Context;
 using JWTAuthTemplate.Models.Identity;
@@ -31,7 +30,6 @@ namespace JWTAuthTemplate
             builder.Configuration["JWT:ValidAudience"] = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? builder.Configuration["JWT:ValidAudience"];
             builder.Configuration["JWT:ValidIssuer"] = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? builder.Configuration["JWT:ValidIssuer"];
             var connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING") ?? builder.Configuration.GetConnectionString("DefaultConnection");
-
             //Add Postgres database
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
             {
@@ -48,6 +46,8 @@ namespace JWTAuthTemplate
             builder.Services.AddIdentity<ApplicationUser, ApplicationRole>()
                 .AddEntityFrameworkStores<ApplicationDbContext>()
                 .AddDefaultTokenProviders();
+
+            
 
             //Set up JWT
             builder.Services.AddAuthentication(opts =>

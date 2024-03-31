@@ -143,7 +143,7 @@ namespace JWTAuthTemplate.Migrations
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
 
-                    b.ToTable("AspNetUsers", (string)null);
+                    b.ToTable("aspnetusers", (string)null);
                 });
 
             modelBuilder.Entity("JWTAuthTemplate.Models.Identity.ApplicationUserClaim", b =>

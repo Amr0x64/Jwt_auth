@@ -6,7 +6,9 @@ using JWTAuthTemplate.Context;
 using JWTAuthTemplate.DTO.Identity;
 using JWTAuthTemplate.Extensions;
 using JWTAuthTemplate.Models.Identity;
+using JWTAuthTemplate.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -23,25 +25,22 @@ namespace JWTAuthTemplate.Controllers
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IConfiguration _configuration;
         private readonly IOptionsMonitor<JwtBearerOptions> _jwtOptions;
+        private readonly ApplicationDbContext _context;
 
-        public AuthenticationController(UserManager<ApplicationUser> signInManager, IConfiguration configuration, RoleManager<ApplicationRole> roleManager, IOptionsMonitor<JwtBearerOptions> jwtOptions)
+        public AuthenticationController(ApplicationDbContext context, UserManager<ApplicationUser> signInManager, IConfiguration configuration, RoleManager<ApplicationRole> roleManager, IOptionsMonitor<JwtBearerOptions> jwtOptions)
         {
+            _context = context;
+            
             _userManager = signInManager;
             _configuration = configuration;
             _roleManager = roleManager;
             _jwtOptions = jwtOptions;
         }
 
-        [HttpPost("Register")]
+        [HttpPost("register")]
         public async Task<ActionResult> Register([FromBody] RegisterDTO registration)
         {
-            var userExists = await _userManager.FindByNameAsync(registration.Username);
             var emailExists = await _userManager.FindByEmailAsync(registration.Email);
-
-            if (userExists != null)
-            {
-                return BadRequest("That username already exists!");
-            }
 
             if (emailExists != null)
             {
@@ -52,20 +51,25 @@ namespace JWTAuthTemplate.Controllers
             {
                 Id = Guid.NewGuid().ToString(),
                 Email = registration.Email,
+                UserName = Guid.NewGuid().ToString(),
                 SecurityStamp = Guid.NewGuid().ToString(),
-                UserName = registration.Username,
                 CreateDate = DateTime.UtcNow,
             };
 
             try
             {
+                var statusPassword = ValidPassword.PasswordStrength(registration.Password); 
+                if ((int)statusPassword == 1)
+                {   
+                    return BadRequest("weak_password");
+                }
                 var result = await _userManager.CreateAsync(user, registration.Password);
                 if (!result.Succeeded)
                 {
                     return BadRequest(result.Errors);
                 }
 
-                return Ok("User created successfully!");
+                return Ok(new {user_id = user.Id, password_check_status = (int)statusPassword == 2 ? "good" : "perfect"});
             }
             catch (Exception e)
             {
@@ -74,25 +78,26 @@ namespace JWTAuthTemplate.Controllers
             
         }
 
-        [HttpPost("Login")]
+        [HttpPost("authorize")]
         public async Task<ActionResult> Login([FromBody] LoginDTO login)
         {
-            var user = await _userManager.FindByNameAsync(login.Username);
+            var user = await _userManager.FindByEmailAsync(login.Email);
             if (user == null)
             {
-                return BadRequest("Invalid username or password!");
+                return BadRequest("Invalid mail or password!");
+                
             }
 
             var result = await _userManager.CheckPasswordAsync(user, login.Password);
             if (!result)
             {
-                return BadRequest("Invalid username or password!");
+                return BadRequest("Invalid mail or password!");
             }
             
             var claims = new List<Claim>()
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(ClaimTypes.Name, user.UserName),
+                new Claim(ClaimTypes.Name, user.Email),
             };
 
             foreach (var userRole in user.Roles)
@@ -113,111 +118,31 @@ namespace JWTAuthTemplate.Controllers
 
             return Ok(new
             {
-                JWT = new AuthorizedDTO()
-                {
-                    Token = new JwtSecurityTokenHandler().WriteToken(token),
-                    RefreshToken = refreshToken,
-                    TokenExpiration = token.ValidTo,
-                },
-                User = new UserDTO()
-                {
-                    Id = user.Id,
-                    Username = user.UserName,
-                    Email = user.Email,
-                    CreateDate = user.CreateDate,
-                }
+                access_token = new JwtSecurityTokenHandler().WriteToken(token)
             });
         }
 
-        [HttpPost("Roles")]
-        public async Task<ActionResult> AddRole([FromBody] RoleDTO role)
+        
+        [HttpGet("feed/{access_token}")]
+        public async Task<IActionResult> Feed(string access_token)
         {
-            var roleExists = await _roleManager.FindByNameAsync(role.Name);
-            if (roleExists != null)
-            {
-                return BadRequest("That role already exists!");
-            }
-
-            var newRole = new ApplicationRole()
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = role.Name,
-                NormalizedName = role.Name.ToUpper(),
-                ConcurrencyStamp = Guid.NewGuid().ToString(),
-            };
-
             try
             {
-                await _roleManager.CreateAsync(newRole);
-                return Ok("Role created successfully!");
+                var options = _jwtOptions.Get(JwtBearerDefaults.AuthenticationScheme);
+                var tokenValidationParameters = options.TokenValidationParameters;
+
+                var tokenHandler = new JwtSecurityTokenHandler();
+                var principal = tokenHandler.ValidateToken(access_token, tokenValidationParameters, out SecurityToken securityToken);
+                if (securityToken is not JwtSecurityToken jwtSecurityToken || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+                    return Unauthorized();
+
+                return Ok();
             }
-            catch (Exception e)
+            catch
             {
-                return BadRequest(e.Message);
-            }
+                return Unauthorized();
+            }    
         }
-
-        [HttpPost("Refresh")]
-        public async Task<ActionResult> Refresh([FromBody] RefreshDTO model)
-        {
-
-            string? accessToken = model.AccessToken;
-            string? refreshToken = model.RefreshToken;
-
-            var principal = GetPrincipalFromExpiredToken(accessToken);
-            if (principal == null)
-            {
-                return BadRequest("Invalid access token or refresh token");
-            }
-
-            string? name = principal.Identity?.Name;
-            if (name == null)
-            {
-                return BadRequest("Invalid access token or refresh token");
-            }
-            string username = name;
-
-
-            var user = await _userManager.FindByNameAsync(username);
-
-            if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
-            {
-                return BadRequest("Invalid access token or refresh token");
-            }
-            var userRoles = await _userManager.GetRolesAsync(user);
-
-            var newAccessToken = CreateToken(principal.Claims.ToList());
-            var newRefreshToken = GenerateRefreshToken();
-
-            user.RefreshToken = newRefreshToken;
-            await _userManager.UpdateAsync(user);
-
-            return Ok(new
-            {
-                JWT = new
-                {
-                    Token = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
-                    RefreshToken = newRefreshToken,
-                    Expiration = newAccessToken.ValidTo
-                },
-                User = new
-                {
-                    id = user.Id,
-                    username = user.UserName,
-                    email = user.Email,
-                    roles = userRoles
-                }
-
-            });
-        }
-
-        [HttpGet("Roles")]
-        public async Task<ActionResult> GetRoles()
-        {
-            var roles = await _roleManager.Roles.ToListAsync();
-            return Ok(roles);
-        }
-
 
         private JwtSecurityToken CreateToken(List<Claim> authClaims)
         {
