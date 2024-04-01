@@ -7,6 +7,8 @@ services:
     environment:
         POSTGRES_PASSWORD: ChangeMe123!
         POSTGRES_DB: JWTAuthTemplate
+    volumes:
+      - ./pg-data:/var/lib/postgresql/data
 
   jwtauthtemplate:
     image: ${DOCKER_REGISTRY-}jwtauthtemplate
@@ -25,3 +27,5 @@ services:
     ports:
         - "5505:80" 
         - "5506:443"
+volumes:
+    pg-data:      
