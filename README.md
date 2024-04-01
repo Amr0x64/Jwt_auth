@@ -11,7 +11,7 @@
 
 
 
-
+##Build and run project
 docker compose up -d
 
 ##Use Swagger: Auth Endpoints.
