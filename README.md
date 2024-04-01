@@ -1,4 +1,4 @@
-## VkInternal
+## VkInternship
 
 ## Basic rundown of features
 - JWT bearer authentication
